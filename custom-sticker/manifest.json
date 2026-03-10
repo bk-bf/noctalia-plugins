@@ -2,7 +2,7 @@
   "id": "custom-sticker",
   "name": "Custom Stickers",
   "version": "1.0.0",
-  "minNoctaliaVersion": "4.6.5",
+  "minNoctaliaVersion": "4.6.6",
   "author": "Spyridon Siarapis",
   "license": "MIT",
   "repository": "https://github.com/noctalia-dev/noctalia-plugins",
