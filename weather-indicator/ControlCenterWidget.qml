@@ -6,8 +6,7 @@ import qs.Services.Location
 import qs.Widgets
 import qs.Services.UI
 
-Item {
-    id: root
+NIconButtonHot {
 
     property ShellScreen screen
     property var pluginApi: null
@@ -16,115 +15,110 @@ Item {
     property var cfg: pluginApi?.pluginSettings || ({})
     property var defaults: pluginApi?.manifest?.metadata?.defaultSettings || ({})
 
-    readonly property string tooltipOption: cfg.tooltipOption || defaults.tooltipOption
+    readonly property string tooltipOption: cfg.tooltipOption ?? defaults.tooltipOption ?? "everything"
     readonly property string iconText: weatherReady ? LocationService.weatherSymbolFromCode(LocationService.data.weather.current_weather.weathercode, LocationService.data.weather.current_weather.is_day) : "weather-cloud-off"
-    property bool applyUiScale: true
+    icon: iconText
+
     property real baseSize: Style.baseWidgetSize
-    implicitWidth: applyUiScale ? Math.round(baseSize * Style.uiScaleRatio) : Math.round(baseSize)
-    implicitHeight: applyUiScale ? Math.round(baseSize * Style.uiScaleRatio) : Math.round(baseSize)
+    implicitWidth: Math.round(baseSize * Style.uiScaleRatio)
+    implicitHeight: Math.round(baseSize * Style.uiScaleRatio)
 
-NIconButtonHot {
-  property ShellScreen screen
-  icon: root.iconText
-
-  tooltipText: {
-    let allRows = [];
-    switch (root.tooltipOption) {
-        case "highlow": {
-            allRows.push(...buildHiLowTemps());
-            break
+    tooltipText: {
+        let allRows = [];
+        switch (tooltipOption) {
+            case "highlow": {
+                allRows.push(...buildHiLowTemps());
+                break
+            }
+            case "sunrise": {
+                allRows.push(...buildSunriseSunset())
+                break
+            }
+            case "everything": {
+                allRows.push(...buildCurrentTemp());
+                allRows.push(...buildHiLowTemps())
+                allRows.push(...buildSunriseSunset());
+                break
+            }
+            default:
+                Logger.i("WeatherIndicator", `tooltipOption option: ${root.tooltipOption} not recongnized.`);
         }
-        case "sunrise": {
-            allRows.push(...buildSunriseSunset())
-            break
+        return allRows
+            }
+    onClicked: {
+        if (pluginApi) {
+        pluginApi.togglePanel(screen, this);
         }
-        case "everything": {
-            allRows.push(...buildCurrentTemp());
-            allRows.push(...buildHiLowTemps())
-            allRows.push(...buildSunriseSunset());
-            break
-        }
-        default:
-            break
-    }
-    return allRows
-        }
-  onClicked: {
-    if (pluginApi) {
-      pluginApi.togglePanel(root.screen, this);
-    }
-  }
-}
-
-function buildCurrentTemp() {
-    let rows = [];
-    var temp = LocationService.data.weather.current_weather.temperature;
-    var suffix = "°C";
-
-    if (Settings.data.location.useFahrenheit) {
-        temp = LocationService.celsiusToFahrenheit(temp)
-        suffix = "°F";
     }
 
-    //return `Current ${Math.round(temp)}${suffix}`;
-    rows.push([("Current"), `${Math.round(temp)}${suffix}`]);
-    return rows;
-}
+    function buildCurrentTemp() {
+        let rows = [];
+        var temp = LocationService.data.weather.current_weather.temperature;
+        var suffix = "°C";
 
-function buildHiLowTemps() {
-    let rows = [];
-    var max = LocationService.data.weather.daily.temperature_2m_max[0]
-    var min = LocationService.data.weather.daily.temperature_2m_min[0]
-    var suffix = "°C";
+        if (Settings.data.location.useFahrenheit) {
+            temp = LocationService.celsiusToFahrenheit(temp)
+            suffix = "°F";
+        }
 
-    if (Settings.data.location.useFahrenheit) {
-        max = LocationService.celsiusToFahrenheit(max)
-        min = LocationService.celsiusToFahrenheit(min)
-        suffix = "°F";
+        rows.push([("Current"), `${Math.round(temp)}${suffix}`]);
+        return rows;
     }
 
-    rows.push([("High"), `${Math.round(max)}${suffix}`]);
-    rows.push([("Low"), `${Math.round(min)}${suffix}`]);
+    function buildHiLowTemps() {
+        let rows = [];
+        var max = LocationService.data.weather.daily.temperature_2m_max[0]
+        var min = LocationService.data.weather.daily.temperature_2m_min[0]
+        var suffix = "°C";
 
-    return rows;
-}
-
-function buildSunriseSunset() {
-    let rows = [];
-    var riseDate = new Date(LocationService.data.weather.daily.sunrise[0])
-    var setDate  = new Date(LocationService.data.weather.daily.sunset[0])
-
-    const timeFormat = Settings.data.location.use12hourFormat ? "hh:mm AP" : "HH:mm";
-    const rise = I18n.locale.toString(riseDate, timeFormat);
-    const set = I18n.locale.toString(setDate, timeFormat);
-
-    rows.push([("Sunrise"), rise]);
-    rows.push([("Sunset"), set]);
-    return rows;
-}
-
-function buildWeatherTooltip() {
-    let allRows = [];
-    switch (root.tooltipOption) {
-        case "highlow": {
-            allRows.push(...buildHiLowTemps());
-            break
+        if (Settings.data.location.useFahrenheit) {
+            max = LocationService.celsiusToFahrenheit(max)
+            min = LocationService.celsiusToFahrenheit(min)
+            suffix = "°F";
         }
-        case "sunrise": {
-            allRows.push(...buildSunriseSunset())
-            break
-        }
-        case "everything": {
-            allRows.push(...buildCurrentTemp());
-            allRows.push(...buildHiLowTemps())
-            allRows.push(...buildSunriseSunset());
-            break
-        }
-        default:
-            break
+
+        rows.push([("High"), `${Math.round(max)}${suffix}`]);
+        rows.push([("Low"), `${Math.round(min)}${suffix}`]);
+
+        return rows;
     }
-    if (allRows.length > 0) {
-      TooltipService.show(root, allRows, BarService.getTooltipDirection(root.screen?.name))
+
+    function buildSunriseSunset() {
+        let rows = [];
+        var riseDate = new Date(LocationService.data.weather.daily.sunrise[0])
+        var setDate  = new Date(LocationService.data.weather.daily.sunset[0])
+
+        const timeFormat = Settings.data.location.use12hourFormat ? "hh:mm AP" : "HH:mm";
+        const rise = I18n.locale.toString(riseDate, timeFormat);
+        const set = I18n.locale.toString(setDate, timeFormat);
+
+        rows.push([("Sunrise"), rise]);
+        rows.push([("Sunset"), set]);
+        return rows;
     }
-  }
+
+    function buildWeatherTooltip() {
+        let allRows = [];
+        switch (root.tooltipOption) {
+            case "highlow": {
+                allRows.push(...buildHiLowTemps());
+                break
+            }
+            case "sunrise": {
+                allRows.push(...buildSunriseSunset())
+                break
+            }
+            case "everything": {
+                allRows.push(...buildCurrentTemp());
+                allRows.push(...buildHiLowTemps())
+                allRows.push(...buildSunriseSunset());
+                break
+            }
+            default:
+                break
+        }
+        if (allRows.length > 0) {
+        TooltipService.show(root, allRows, BarService.getTooltipDirection(root.screen?.name))
+        }
+    }
 }
