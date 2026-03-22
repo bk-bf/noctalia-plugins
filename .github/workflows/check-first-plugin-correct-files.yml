@@ -93,7 +93,7 @@ jobs:
             # - File 2
             # - File 3 etc etc
             required_files_list=(${!missing[@]})
-            comment_required_files=$(printf '- %s\n' "${required_files_list[@]}")
+            comment_required_files=$(printf -- '- %s\n' "${required_files_list[@]}")
             comment_body="Folder '$folder' is missing some required files: \n ${comment_required_files}"
 
             # Post comment using gh CLI
