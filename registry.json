@@ -478,6 +478,24 @@
       "lastUpdated": "2026-03-23T21:52:09+01:00"
     },
     {
+      "id": "mimeapp-gui",
+      "name": "MimeApp GUI",
+      "version": "1.0.0",
+      "official": false,
+      "author": "Mathew-D",
+      "description": "GUI for inspecting MIME handlers and updating default applications in mimeapps.list (requires python3).",
+      "repository": "https://github.com/noctalia-dev/noctalia-plugins",
+      "minNoctaliaVersion": "4.1.2",
+      "license": "MIT",
+      "tags": [
+        "Bar",
+        "Panel",
+        "Utility",
+        "System"
+      ],
+      "lastUpdated": "2026-03-25T19:05:14-04:00"
+    },
+    {
       "id": "mini-docker",
       "name": "Mini Docker",
       "version": "2.1.2",
