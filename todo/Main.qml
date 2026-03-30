@@ -69,6 +69,63 @@ Item {
     }
   }
 
+  // Live import: watches ~/todo-import.json for changes.
+  // Format: [{"text":"...", "pageId":0, "priority":"medium", "details":"", "dueDate":""}]
+  // Only "text" is required. After import the file is wiped automatically.
+  FileView {
+    id: liveImportView
+    path: Quickshell.env("HOME") + "/todo-plugin/todo-import.json"
+    watchChanges: true
+    onLoaded: {
+      var content = liveImportView.text();
+      if (!content || content.trim().length === 0 || content.trim() === "[]") return;
+      try {
+        var items = JSON.parse(content.trim());
+        if (!Array.isArray(items) || items.length === 0) return;
+        var imported = 0;
+        var now = Date.now();
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (!item.text || item.text.trim().length === 0) continue;
+          var pageId = (item.pageId !== undefined) ? item.pageId
+                       : (rawPages.length > 0 ? rawPages[0].id : 0);
+          var priority = ["high","medium","low"].indexOf(item.priority) >= 0
+                         ? item.priority : "medium";
+          rawTodos.push({
+            id:                 now + i,
+            text:               item.text.trim(),
+            completed:          item.completed === true,
+            createdAt:          new Date().toISOString(),
+            pageId:             pageId,
+            priority:           priority,
+            details:            item.details || "",
+            dueDate:            item.dueDate || "",
+            parentId:           "",
+            googleTaskId:       "",
+            googleListId:       "",
+            googleParentTaskId: ""
+          });
+          imported++;
+        }
+        if (imported > 0) {
+          rawTodos = rawTodos.slice();  // trigger reactivity
+          saveTodos();
+          ToastService.showNotice("Imported " + imported + " todo" + (imported > 1 ? "s" : ""));
+        }
+      } catch (e) {
+        ToastService.showError("todo-import.json parse error: " + e.message);
+      }
+      // Wipe the file so it doesn't re-import on next startup
+      liveImportWipeProcess.running = true;
+    }
+  }
+
+  Process {
+    id: liveImportWipeProcess
+    running: false
+    command: ["sh", "-c", "printf '[]' > " + Quickshell.env("HOME") + "/todo-plugin/todo-import.json"]
+  }
+
   // Process for exporting todos
   Process {
     id: exportProcess
