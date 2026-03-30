@@ -149,3 +149,5 @@
     "sync_failed": "Google Tasks sync failed",
     "error_no_client_id": "Please enter your Google OAuth client ID first",
     "error_not_signed_in": "Please sign in to Google Tasks first"
+  }
+}
