@@ -99,7 +99,7 @@ def main():
     token       = sys.argv[1]
     todos       = json.loads(base64.b64decode(sys.argv[2]))
     pages       = json.loads(base64.b64decode(sys.argv[3]))
-    output_file = sys.argv[4]
+    output_file = sys.argv[4] if len(sys.argv) > 4 else "/dev/null"
 
     BASE = "https://tasks.googleapis.com/tasks/v1"
 
@@ -220,17 +220,22 @@ def main():
     # ------------------------------------------------------------------
     # Write result
     # ------------------------------------------------------------------
+    result = {"todos": updated_todos, "pages": updated_pages}
     with open(output_file, "w", encoding="utf-8") as f:
-        json.dump({"todos": updated_todos, "pages": updated_pages}, f)
+        json.dump(result, f)
+    print(json.dumps(result), flush=True)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Write a structured error so QML can surface it
+        # Print a structured error so QML can surface it
         err_msg = str(exc).replace('"', '\\"')
-        output_file = sys.argv[4] if len(sys.argv) > 4 else "/tmp/noctalia_sync_error.json"
-        with open(output_file, "w") as f:
-            f.write(f'{{"error": "{err_msg}"}}')
+        output_file = sys.argv[4] if len(sys.argv) > 4 else "/dev/null"
+        err_json = f'{{"error": "{err_msg}"}}'
+        if output_file != "/dev/null":
+            with open(output_file, "w") as f:
+                f.write(err_json)
+        print(err_json, flush=True)
         sys.exit(1)

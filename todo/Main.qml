@@ -29,86 +29,60 @@ Item {
     }
   }
 
-  // Auth process — runs google_auth.sh, reads JSON result from temp file
+  // Auth process — runs google_auth.py, reads JSON result from stdout
   Process {
     id: googleAuthProcess
     running: false
+    stdout: StdioCollector { id: googleAuthStdout }
     onExited: function (code) {
-      if (code === 0) {
-        try {
-          var xhr = new XMLHttpRequest();
-          xhr.open("GET", "file://" + googleAuthTempFile, false);
-          xhr.send();
-          var res = JSON.parse(xhr.responseText);
-          if (res.success && res.email) {
-            pluginApi.pluginSettings.googleSync.signedInEmail = res.email;
-            pluginApi.saveSettings();
-            googleSignedInEmail = res.email;
-            googleSyncStatus = "idle";
-            ToastService.showNotice(pluginApi.tr("google_sync.signed_in") + res.email);
-          } else {
-            googleSyncStatus = "error";
-            googleSyncError = res.error || pluginApi.tr("google_sync.auth_failed");
-            ToastService.showError(googleSyncError);
-          }
-        } catch (e) {
+      try {
+        var res = JSON.parse(googleAuthStdout.text);
+        if (res.success) {
+          var email = res.email || "";
+          pluginApi.pluginSettings.googleSync.signedInEmail = email;
+          pluginApi.saveSettings();
+          googleSignedInEmail = email;
+          googleSyncStatus = "idle";
+          ToastService.showNotice(pluginApi.tr("google_sync.signed_in") + email);
+        } else {
           googleSyncStatus = "error";
-          googleSyncError = pluginApi.tr("google_sync.auth_failed");
+          googleSyncError = res.error || pluginApi.tr("google_sync.auth_failed");
           ToastService.showError(googleSyncError);
         }
-      } else {
-        // Try to read error from the temp file for a more helpful message
-        try {
-          var errXhr = new XMLHttpRequest();
-          errXhr.open("GET", "file://" + googleAuthTempFile, false);
-          errXhr.send();
-          var errRes = JSON.parse(errXhr.responseText);
-          googleSyncError = errRes.error || pluginApi.tr("google_sync.auth_failed");
-        } catch (_) {
-          googleSyncError = pluginApi.tr("google_sync.auth_failed");
-        }
+      } catch (e) {
         googleSyncStatus = "error";
+        googleSyncError = (googleAuthStdout.text.trim() || e.toString() || pluginApi.tr("google_sync.auth_failed"));
         ToastService.showError(googleSyncError);
       }
     }
   }
-  property string googleAuthTempFile: ""
 
-  // Sync process — runs google_sync.sh, reads JSON result from temp file
+  // Sync process — runs google_sync.sh, reads JSON result from stdout
   Process {
     id: googleSyncProcess
     running: false
+    stdout: StdioCollector { id: googleSyncStdout }
     onExited: function (code) {
-      if (code === 0) {
-        try {
-          var xhr = new XMLHttpRequest();
-          xhr.open("GET", "file://" + googleSyncTempFile, false);
-          xhr.send();
-          var res = JSON.parse(xhr.responseText);
-          if (res.error) throw new Error(res.error);
-          if (res.todos && res.pages) {
-            rawTodos = res.todos.slice();
-            rawPages = res.pages.slice();
-            saveTodos();
-            savePages();
-            googleSyncStatus = "idle";
-            ToastService.showNotice(pluginApi.tr("google_sync.sync_success"));
-          } else {
-            throw new Error("Invalid sync response");
-          }
-        } catch (e) {
-          googleSyncStatus = "error";
-          googleSyncError = e.message || pluginApi.tr("google_sync.sync_failed");
-          ToastService.showError(pluginApi.tr("google_sync.sync_failed"));
+      try {
+        var res = JSON.parse(googleSyncStdout.text);
+        if (res.error) throw new Error(res.error);
+        if (res.todos && res.pages) {
+          rawTodos = res.todos.slice();
+          rawPages = res.pages.slice();
+          saveTodos();
+          savePages();
+          googleSyncStatus = "idle";
+          ToastService.showNotice(pluginApi.tr("google_sync.sync_success"));
+        } else {
+          throw new Error("Invalid sync response");
         }
-      } else {
+      } catch (e) {
         googleSyncStatus = "error";
-        googleSyncError = pluginApi.tr("google_sync.sync_failed");
+        googleSyncError = e.message || pluginApi.tr("google_sync.sync_failed");
         ToastService.showError(googleSyncError);
       }
     }
   }
-  property string googleSyncTempFile: ""
 
   // Sign-out process — clears all noctalia-todo secrets from the keyring
   Process {
@@ -904,14 +878,12 @@ Item {
     }
     googleSyncStatus = "syncing";
     googleSyncError = "";
-    googleSyncTempFile = "/tmp/noctalia_todo_sync_" + Date.now() + ".json";
     var todosB64 = Qt.btoa(JSON.stringify(rawTodos));
     var pagesB64 = Qt.btoa(JSON.stringify(rawPages));
     googleSyncProcess.command = [
       "bash", resolveScript("google_sync.sh"),
       todosB64,
-      pagesB64,
-      googleSyncTempFile
+      pagesB64
     ];
     googleSyncProcess.running = true;
   }

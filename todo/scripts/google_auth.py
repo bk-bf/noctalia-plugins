@@ -25,6 +25,7 @@ import os
 def fail(msg, output_file):
     with open(output_file, "w") as f:
         json.dump({"success": False, "error": msg}, f)
+    print(json.dumps({"success": False, "error": msg}), flush=True)
     sys.exit(1)
 
 
@@ -192,6 +193,7 @@ def main():
 
     with open(output_file, "w") as f:
         json.dump({"success": True, "email": email}, f)
+    print(json.dumps({"success": True, "email": email}), flush=True)
 
 
 if __name__ == "__main__":
