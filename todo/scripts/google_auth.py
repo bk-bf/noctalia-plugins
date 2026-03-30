@@ -58,6 +58,15 @@ def main():
     if not client_secret:
         fail("client_secret is empty", output_file)
 
+    # Debug: write received args to temp file
+    debug_file = output_file + ".debug"
+    with open(debug_file, "w") as f:
+        json.dump({
+            "client_id_len": len(client_id),
+            "client_id_first10": client_id[:10],
+            "client_secret_len": len(client_secret),
+        }, f, indent=2)
+
     # PKCE — code_verifier (43 url-safe chars) and S256 code_challenge
     raw = secrets.token_bytes(32)
     code_verifier = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -105,7 +114,7 @@ def main():
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, *args):
+        def log_message(self, format, *args):  # noqa: A002
             pass
 
     try:
