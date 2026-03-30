@@ -120,6 +120,7 @@ def main():
 
     try:
         server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+        server.allow_reuse_address = True
         server.timeout = 120
         server.handle_request()
         server.server_close()

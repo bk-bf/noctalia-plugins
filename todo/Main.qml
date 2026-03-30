@@ -870,10 +870,10 @@ Item {
     return Qt.resolvedUrl("scripts/" + name).toString().replace(/^file:\/\//, "");
   }
 
-  function doGoogleSignIn() {
+  function doGoogleSignIn(clientId, clientSecret) {
     if (!pluginApi) return;
-    var clientId = (pluginApi.pluginSettings.googleSync.clientId || "").trim();
-    var clientSecret = (pluginApi.pluginSettings.googleSync.clientSecret || "").trim();
+    clientId = (clientId || pluginApi.pluginSettings.googleSync.clientId || "").trim();
+    clientSecret = (clientSecret || pluginApi.pluginSettings.googleSync.clientSecret || "").trim();
     if (!clientId) {
       ToastService.showError(pluginApi.tr("google_sync.error_no_client_id"));
       return;

@@ -82,12 +82,14 @@ ColumnLayout {
               && clientIdInput.text.trim().length > 0
               && clientSecretInput.text.trim().length > 0
         onClicked: {
+          var cid = clientIdInput.text.trim();
+          var csec = clientSecretInput.text.trim();
           if (mainInstance?.pluginApi) {
-            mainInstance.pluginApi.pluginSettings.googleSync.clientId = clientIdInput.text.trim();
-            mainInstance.pluginApi.pluginSettings.googleSync.clientSecret = clientSecretInput.text.trim();
+            mainInstance.pluginApi.pluginSettings.googleSync.clientId = cid;
+            mainInstance.pluginApi.pluginSettings.googleSync.clientSecret = csec;
             mainInstance.pluginApi.saveSettings();
           }
-          if (mainInstance) mainInstance.doGoogleSignIn();
+          if (mainInstance) mainInstance.doGoogleSignIn(cid, csec);
         }
       }
 
