@@ -47,7 +47,11 @@
       },
       "exportPath": "~/Documents",
       "exportFormat": "markdown",
-      "exportEmptySections": false
+      "exportEmptySections": false,
+      "googleSync": {
+        "signedInEmail": "",
+        "clientId": ""
+      }
     }
   }
 }

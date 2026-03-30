@@ -405,6 +405,118 @@ ColumnLayout {
     }
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Google Tasks Sync section
+  // ──────────────────────────────────────────────────────────────────────
+  ColumnLayout {
+    Layout.fillWidth: true
+    spacing: Style.marginS
+
+    NText {
+      text: pluginApi?.tr("google_sync.settings_label")
+      font.pointSize: Style.fontSizeL
+      font.weight: Font.Bold
+      Layout.topMargin: Style.marginL
+    }
+
+    // ── Not signed in ─────────────────────────────────────────────────
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.marginS
+      visible: !(mainInstance?.googleSignedInEmail)
+
+      NText {
+        text: pluginApi?.tr("google_sync.settings_description")
+        wrapMode: Text.Wrap
+        Layout.fillWidth: true
+        opacity: 0.7
+      }
+
+      RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.marginS
+
+        NTextInput {
+          id: clientIdInput
+          placeholderText: pluginApi?.tr("google_sync.client_id_placeholder")
+          text: pluginApi?.pluginSettings?.googleSync?.clientId || ""
+          Layout.fillWidth: true
+        }
+      }
+
+      NButton {
+        Layout.fillWidth: true
+        text: mainInstance?.googleSyncStatus === "authenticating"
+            ? pluginApi?.tr("google_sync.signing_in")
+            : pluginApi?.tr("google_sync.sign_in_button")
+        enabled: mainInstance?.googleSyncStatus !== "authenticating"
+              && clientIdInput.text.trim().length > 0
+        onClicked: {
+          if (mainInstance?.pluginApi) {
+            mainInstance.pluginApi.pluginSettings.googleSync.clientId = clientIdInput.text.trim();
+            mainInstance.pluginApi.saveSettings();
+          }
+          if (mainInstance) mainInstance.doGoogleSignIn();
+        }
+      }
+
+      NText {
+        visible: mainInstance?.googleSyncStatus === "error"
+        text: mainInstance?.googleSyncError || ""
+        color: Color.mError
+        wrapMode: Text.Wrap
+        Layout.fillWidth: true
+      }
+    }
+
+    // ── Signed in ─────────────────────────────────────────────────────
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.marginS
+      visible: !!(mainInstance?.googleSignedInEmail)
+
+      NText {
+        text: (pluginApi?.tr("google_sync.signed_in_as") || "") + (mainInstance?.googleSignedInEmail || "")
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+      }
+
+      RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.marginS
+
+        NButton {
+          Layout.fillWidth: true
+          text: mainInstance?.googleSyncStatus === "syncing"
+              ? pluginApi?.tr("google_sync.syncing")
+              : pluginApi?.tr("google_sync.sync_button")
+          enabled: mainInstance?.googleSyncStatus !== "syncing"
+                && mainInstance?.googleSyncStatus !== "authenticating"
+          onClicked: {
+            if (mainInstance) mainInstance.doGoogleSync();
+          }
+        }
+
+        NButton {
+          text: pluginApi?.tr("google_sync.sign_out_button")
+          textColor: Color.mOnError
+          backgroundColor: Color.mError
+          onClicked: {
+            if (mainInstance) mainInstance.doGoogleSignOut();
+          }
+        }
+      }
+
+      NText {
+        visible: mainInstance?.googleSyncStatus === "error"
+        text: mainInstance?.googleSyncError || ""
+        color: Color.mError
+        wrapMode: Text.Wrap
+        Layout.fillWidth: true
+      }
+    }
+  }
+
   function isPageNameUnique(name, excludeIndex) {
     var pages = pluginApi?.pluginSettings?.pages || [];
     var lowerName = name.toLowerCase().trim();

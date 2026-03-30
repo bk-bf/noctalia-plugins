@@ -10,6 +10,11 @@ Item {
   property var rawPages: []
   property string currentExportPath: ""
 
+  // Google Sync reactive state (watched by Settings.qml via mainInstance)
+  property string googleSyncStatus: "idle"  // "idle" | "authenticating" | "syncing" | "error"
+  property string googleSyncError: ""
+  property string googleSignedInEmail: ""
+
   // Process for exporting todos
   Process {
     id: exportProcess
@@ -21,6 +26,91 @@ Item {
       } else {
         ToastService.showError(pluginApi.tr("main.export_failed"));
       }
+    }
+  }
+
+  // Auth process — runs google_auth.sh, reads JSON result from temp file
+  Process {
+    id: googleAuthProcess
+    running: false
+    onExited: function (code) {
+      if (code === 0) {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", "file://" + googleAuthTempFile, false);
+          xhr.send();
+          var res = JSON.parse(xhr.responseText);
+          if (res.success && res.email) {
+            pluginApi.pluginSettings.googleSync.signedInEmail = res.email;
+            pluginApi.saveSettings();
+            googleSignedInEmail = res.email;
+            googleSyncStatus = "idle";
+            ToastService.showNotice(pluginApi.tr("google_sync.signed_in") + res.email);
+          } else {
+            googleSyncStatus = "error";
+            googleSyncError = res.error || pluginApi.tr("google_sync.auth_failed");
+            ToastService.showError(googleSyncError);
+          }
+        } catch (e) {
+          googleSyncStatus = "error";
+          googleSyncError = pluginApi.tr("google_sync.auth_failed");
+          ToastService.showError(googleSyncError);
+        }
+      } else {
+        googleSyncStatus = "error";
+        googleSyncError = pluginApi.tr("google_sync.auth_failed");
+        ToastService.showError(googleSyncError);
+      }
+    }
+  }
+  property string googleAuthTempFile: ""
+
+  // Sync process — runs google_sync.sh, reads JSON result from temp file
+  Process {
+    id: googleSyncProcess
+    running: false
+    onExited: function (code) {
+      if (code === 0) {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", "file://" + googleSyncTempFile, false);
+          xhr.send();
+          var res = JSON.parse(xhr.responseText);
+          if (res.error) throw new Error(res.error);
+          if (res.todos && res.pages) {
+            rawTodos = res.todos.slice();
+            rawPages = res.pages.slice();
+            saveTodos();
+            savePages();
+            googleSyncStatus = "idle";
+            ToastService.showNotice(pluginApi.tr("google_sync.sync_success"));
+          } else {
+            throw new Error("Invalid sync response");
+          }
+        } catch (e) {
+          googleSyncStatus = "error";
+          googleSyncError = e.message || pluginApi.tr("google_sync.sync_failed");
+          ToastService.showError(pluginApi.tr("google_sync.sync_failed"));
+        }
+      } else {
+        googleSyncStatus = "error";
+        googleSyncError = pluginApi.tr("google_sync.sync_failed");
+        ToastService.showError(googleSyncError);
+      }
+    }
+  }
+  property string googleSyncTempFile: ""
+
+  // Sign-out process — clears all noctalia-todo secrets from the keyring
+  Process {
+    id: googleSignOutProcess
+    running: false
+    onExited: function (code) {
+      pluginApi.pluginSettings.googleSync.signedInEmail = "";
+      pluginApi.saveSettings();
+      googleSignedInEmail = "";
+      googleSyncStatus = "idle";
+      ToastService.showNotice(pluginApi.tr("google_sync.signed_out"));
     }
   }
 
@@ -89,6 +179,26 @@ Item {
         }
         if (rawTodos[i].details === undefined)
           rawTodos[i].details = "";
+        // Google sync fields
+        if (rawTodos[i].googleTaskId === undefined)
+          rawTodos[i].googleTaskId = "";
+        if (rawTodos[i].googleListId === undefined)
+          rawTodos[i].googleListId = "";
+      }
+
+      // Initialize Google Sync settings
+      if (!pluginApi.pluginSettings.googleSync) {
+        pluginApi.pluginSettings.googleSync = {
+          signedInEmail: "",
+          clientId: ""
+        };
+      }
+      googleSignedInEmail = pluginApi.pluginSettings.googleSync.signedInEmail || "";
+
+      // Data migration: add googleListId to pages
+      for (var i = 0; i < rawPages.length; i++) {
+        if (rawPages[i].googleListId === undefined)
+          rawPages[i].googleListId = "";
       }
 
       pluginApi.saveSettings();
@@ -736,5 +846,65 @@ Item {
     default:
       return pluginApi.tr("main.priority_medium");
     }
+  }
+
+  // ============================================
+  // Google Tasks Sync
+  // ============================================
+
+  // Resolve a script path relative to this QML file's directory.
+  // Uses bash for invocation so scripts need not be chmod +x.
+  function resolveScript(name) {
+    return Qt.resolvedUrl("scripts/" + name).toString().replace(/^file:\/\//, "");
+  }
+
+  function doGoogleSignIn() {
+    if (!pluginApi) return;
+    var clientId = (pluginApi.pluginSettings.googleSync.clientId || "").trim();
+    if (!clientId) {
+      ToastService.showError(pluginApi.tr("google_sync.error_no_client_id"));
+      return;
+    }
+    if (googleAuthProcess.running) return;
+    googleSyncStatus = "authenticating";
+    googleSyncError = "";
+    googleAuthTempFile = "/tmp/noctalia_todo_auth_" + Date.now() + ".json";
+    googleAuthProcess.command = [
+      "bash", resolveScript("google_auth.sh"),
+      clientId,
+      googleAuthTempFile
+    ];
+    googleAuthProcess.running = true;
+  }
+
+  function doGoogleSync() {
+    if (!pluginApi) return;
+    if (googleSyncProcess.running || googleAuthProcess.running) return;
+    if (!pluginApi.pluginSettings.googleSync.signedInEmail) {
+      ToastService.showError(pluginApi.tr("google_sync.error_not_signed_in"));
+      return;
+    }
+    googleSyncStatus = "syncing";
+    googleSyncError = "";
+    googleSyncTempFile = "/tmp/noctalia_todo_sync_" + Date.now() + ".json";
+    var todosB64 = Qt.btoa(JSON.stringify(rawTodos));
+    var pagesB64 = Qt.btoa(JSON.stringify(rawPages));
+    googleSyncProcess.command = [
+      "bash", resolveScript("google_sync.sh"),
+      todosB64,
+      pagesB64,
+      googleSyncTempFile
+    ];
+    googleSyncProcess.running = true;
+  }
+
+  function doGoogleSignOut() {
+    if (!pluginApi) return;
+    if (googleSignOutProcess.running) return;
+    googleSignOutProcess.command = [
+      "secret-tool", "clear",
+      "service", "noctalia-todo"
+    ];
+    googleSignOutProcess.running = true;
   }
 }
