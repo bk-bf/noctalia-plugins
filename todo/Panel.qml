@@ -15,6 +15,7 @@ Item {
   readonly property bool allowAttach: true
   anchors.fill: parent
   property ListModel filteredTodosModel: ListModel {}
+  property ListModel filteredCompletedModel: ListModel {}
   property bool showCompleted: false
   property var rawTodos: []
   property int currentPageId: 0
@@ -36,10 +37,13 @@ Item {
     value: pluginApi?.pluginSettings?.todos || []
   }
 
+  // showCompleted controls whether the completed section is expanded.
+  // Initialised from settings once; toggled locally and written back.
   Binding {
     target: root
     property: "showCompleted"
-    value: pluginApi?.pluginSettings?.showCompleted !== undefined ? pluginApi.pluginSettings.showCompleted : pluginApi?.manifest?.metadata?.defaultSettings?.showCompleted || false
+    value: pluginApi?.pluginSettings?.showCompleted !== undefined ? pluginApi.pluginSettings.showCompleted : false
+    restoreMode: Binding.RestoreNone
   }
 
   Binding {
@@ -63,7 +67,6 @@ Item {
   // Listen for changes that affect the todo list display
   onRawTodosChanged: scheduleReload()
   onCurrentPageIdChanged: scheduleReload()
-  onShowCompletedChanged: scheduleReload()
 
   Rectangle {
     id: panelContainer
@@ -1058,6 +1061,142 @@ Item {
               header: null
             }
 
+            // ── Completed section ──────────────────────────────────────
+            // Header row: "▶/▼ Completed (N)" — only when there are completed todos
+            Rectangle {
+              Layout.fillWidth: true
+              Layout.preferredHeight: Style.baseWidgetSize * 0.85
+              visible: root.filteredCompletedModel.count > 0
+              color: "transparent"
+
+              RowLayout {
+                anchors.fill: parent
+                spacing: Style.marginS
+
+                NIcon {
+                  icon: root.showCompleted ? "chevron-down" : "chevron-right"
+                  pointSize: Style.fontSizeS
+                  color: Color.mOnSurfaceVariant
+                }
+
+                NText {
+                  text: pluginApi?.tr("panel.completed_section.title") + " (" + root.filteredCompletedModel.count + ")"
+                  color: Color.mOnSurfaceVariant
+                  font.pointSize: Style.fontSizeS
+                }
+
+                Item { Layout.fillWidth: true }
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  root.showCompleted = !root.showCompleted;
+                  pluginApi.pluginSettings.showCompleted = root.showCompleted;
+                  pluginApi.saveSettings();
+                }
+              }
+            }
+
+            // Completed tasks list
+            ListView {
+              id: completedListView
+              Layout.fillWidth: true
+              Layout.preferredHeight: Math.min(
+                root.filteredCompletedModel.count * (Style.baseWidgetSize + Style.marginS),
+                180
+              )
+              clip: true
+              visible: root.showCompleted && root.filteredCompletedModel.count > 0
+              model: root.filteredCompletedModel
+              spacing: Style.marginS
+              boundsBehavior: Flickable.StopAtBounds
+
+              delegate: Rectangle {
+                width: ListView.view.width
+                height: Style.baseWidgetSize
+                color: Color.mSurface
+                radius: Style.radiusS
+                required property var modelData
+
+                MouseArea {
+                  anchors.fill: parent
+                  onClicked: root.openTodoDetails(modelData)
+                }
+
+                RowLayout {
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.marginM
+                  anchors.rightMargin: Style.marginM
+                  spacing: Style.marginS
+
+                  // Priority colour bar
+                  Rectangle {
+                    Layout.preferredWidth: 4
+                    Layout.preferredHeight: parent.height - Style.marginS
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: 2
+                    color: getPriorityColor(modelData.priority || "medium")
+                  }
+
+                  // Filled checkbox
+                  Item {
+                    Layout.preferredWidth: Style.baseWidgetSize * 0.7
+                    Layout.preferredHeight: Style.baseWidgetSize * 0.7
+
+                    Rectangle {
+                      anchors.fill: parent
+                      radius: Style.iRadiusXS
+                      color: Color.mPrimary
+                      border.color: Color.mOutline
+                      border.width: Style.borderS
+
+                      NIcon {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: -1
+                        icon: "check"
+                        color: Color.mOnPrimary
+                        pointSize: Math.max(Style.fontSizeXS, Style.baseWidgetSize * 0.7 * 0.5)
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: toggleTodo(modelData.id, true)
+                      }
+                    }
+                  }
+
+                  // Strikethrough text
+                  NText {
+                    Layout.fillWidth: true
+                    text: modelData.text
+                    color: Color.mOnSurfaceVariant
+                    font.strikeout: true
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                  }
+
+                  // Delete button
+                  NIcon {
+                    icon: "x"
+                    pointSize: Style.fontSizeM
+                    color: Color.mOnSurfaceVariant
+                    opacity: 0.5
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: removeTodo(modelData.id)
+                      onContainsMouseChanged: parent.opacity = containsMouse ? 1.0 : 0.5
+                    }
+                  }
+                }
+              }
+            }
+
             // Empty state overlay - using a separate container that doesn't interfere with layout
             Item {
               Layout.fillWidth: true
@@ -1601,13 +1740,14 @@ Item {
     var currentScrollPos = todoListView ? todoListView.contentY : 0;
     var currentVisibleIndex = todoListView ? todoListView.currentIndex : -1;
 
-    // Clear model
+    // Clear both models
     filteredTodosModel.clear();
+    filteredCompletedModel.clear();
 
     var pluginTodos = root.rawTodos;
     var currentPageId = root.currentPageId;
 
-    // Process todos in a single pass and populate models directly
+    // Split todos into active and completed models
     for (var i = 0; i < pluginTodos.length; i++) {
       var todo = pluginTodos[i];
       if (todo.pageId === currentPageId) {
@@ -1621,8 +1761,9 @@ Item {
           details: todo.details
         };
 
-        // Add to filtered model if applicable
-        if (root.showCompleted || !todo.completed) {
+        if (todo.completed) {
+          filteredCompletedModel.append(todoItem);
+        } else {
           filteredTodosModel.append(todoItem);
         }
       }

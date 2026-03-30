@@ -132,6 +132,26 @@ def main():
         page_to_list[page["id"]] = gl_id
         updated_pages.append(page)
 
+    # Also create local pages for Google Task lists that have no local page yet
+    # (e.g. "My Tasks" on a fresh install, or lists created on another device)
+    mapped_gl_ids = set(page_to_list.values())
+    existing_ids  = [p["id"] for p in updated_pages]
+    next_page_id  = (max(existing_ids) + 1) if existing_ids else 1
+    for gl_id, gl_list in by_id.items():
+        if gl_id in mapped_gl_ids:
+            continue
+        title = gl_list.get("title", "").strip()
+        if not title:
+            continue
+        new_page = {
+            "id":           next_page_id,
+            "name":         title,
+            "googleListId": gl_id,
+        }
+        updated_pages.append(new_page)
+        page_to_list[next_page_id] = gl_id
+        next_page_id += 1
+
     # ------------------------------------------------------------------
     # Step 2: Fetch all existing Google tasks per list (paginated)
     # ------------------------------------------------------------------

@@ -55,6 +55,9 @@
     "empty_state": {
       "message": "No todo items yet"
     },
+    "completed_section": {
+      "title": "Completed"
+    },
     "header": {
       "clear_completed_button": "Clear Completed",
       "export_button": "Export",

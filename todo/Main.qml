@@ -44,6 +44,7 @@ Item {
           googleSignedInEmail = email;
           googleSyncStatus = "idle";
           ToastService.showNotice(pluginApi.tr("google_sync.signed_in") + email);
+          Qt.callLater(doGoogleSync);
         } else {
           googleSyncStatus = "error";
           googleSyncError = res.error || pluginApi.tr("google_sync.auth_failed");
@@ -55,6 +56,16 @@ Item {
         ToastService.showError(googleSyncError);
       }
     }
+  }
+  property string googleAuthTempFile: ""
+
+  // Auto-sync timer: fires every 15 minutes while signed in
+  Timer {
+    id: googleAutoSyncTimer
+    interval: 900000
+    repeat: true
+    running: googleSignedInEmail !== ""
+    onTriggered: doGoogleSync()
   }
 
   // Sync process — runs google_sync.sh, reads JSON result from stdout
@@ -180,6 +191,8 @@ Item {
         pluginApi.pluginSettings.googleSync.clientSecret = "";
       }
       googleSignedInEmail = pluginApi.pluginSettings.googleSync.signedInEmail || "";
+      if (googleSignedInEmail)
+        Qt.callLater(doGoogleSync);
 
       // Data migration: add googleListId to pages
       for (var i = 0; i < rawPages.length; i++) {

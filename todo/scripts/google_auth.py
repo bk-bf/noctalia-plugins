@@ -92,7 +92,6 @@ def main():
     })
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
 
-    print(f"AUTH_URL: {auth_url}", flush=True)
     subprocess.Popen(["xdg-open", auth_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # Minimal HTTP server to catch the OAuth redirect (120 s timeout)
