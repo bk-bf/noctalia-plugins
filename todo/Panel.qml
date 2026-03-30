@@ -10,7 +10,7 @@ Item {
 
   property var pluginApi: null
   readonly property var geometryPlaceholder: panelContainer
-  property real contentPreferredWidth: 700 * Style.uiScaleRatio
+  property real contentPreferredWidth: 350 * Style.uiScaleRatio
   property real contentPreferredHeight: 500 * Style.uiScaleRatio
   readonly property bool allowAttach: true
   anchors.fill: parent
@@ -110,42 +110,64 @@ Item {
               Layout.fillWidth: true
             }
 
-            NButton {
-              text: pluginApi?.tr("panel.header.export_button")
+            NIconButton {
               icon: "download"
-              fontSize: Style.fontSizeS
+              baseSize: Style.baseWidgetSize
+              customRadius: Style.iRadiusS
+              ToolTip.visible: hovered
+              ToolTip.text: pluginApi?.tr("panel.header.export_button")
+              ToolTip.delay: 800
               onClicked: {
-                if (mainInstance) {
+                if (mainInstance)
                   mainInstance.doExportTodos();
-                }
               }
             }
 
-            NButton {
+            NIconButton {
               icon: mainInstance?.googleSyncStatus === "syncing" ? "arrows-rotate" : "cloud"
-              text: mainInstance?.googleSyncStatus === "syncing"
-                  ? pluginApi?.tr("google_sync.syncing")
-                  : mainInstance?.googleSyncStatus === "authenticating"
-                  ? pluginApi?.tr("google_sync.signing_in")
-                  : pluginApi?.tr("panel.header.sync_button")
-              fontSize: Style.fontSizeS
+              baseSize: Style.baseWidgetSize
+              customRadius: Style.iRadiusS
               enabled: mainInstance?.googleSyncStatus !== "syncing"
                     && mainInstance?.googleSyncStatus !== "authenticating"
+              ToolTip.visible: hovered
+              ToolTip.text: mainInstance?.googleSyncStatus === "syncing"
+                  ? pluginApi?.tr("google_sync.syncing")
+                  : pluginApi?.tr("panel.header.sync_list_button")
+              ToolTip.delay: 800
               onClicked: {
                 if (!mainInstance) return;
                 if (!mainInstance.googleSignedInEmail) {
                   ToastService.showNotice(pluginApi.tr("google_sync.error_not_signed_in_panel"));
                 } else {
-                  mainInstance.doGoogleSync();
+                  mainInstance.doGoogleSync(root.currentPageId);
                 }
               }
             }
 
-            NButton {
-              enabled: (pluginApi.pluginSettings.completedCount > 0)
-              text: pluginApi?.tr("panel.header.clear_completed_button")
+            NIconButton {
+              icon: "cloud-arrow-up"
+              baseSize: Style.baseWidgetSize
+              customRadius: Style.iRadiusS
+              visible: (mainInstance?.googleSignedInEmail || "") !== ""
+              enabled: mainInstance?.googleSyncStatus !== "syncing"
+                    && mainInstance?.googleSyncStatus !== "authenticating"
+              ToolTip.visible: hovered
+              ToolTip.text: pluginApi?.tr("panel.header.sync_all_button")
+              ToolTip.delay: 800
+              onClicked: {
+                if (!mainInstance) return;
+                mainInstance.doGoogleSync();
+              }
+            }
+
+            NIconButton {
               icon: "trash"
-              fontSize: Style.fontSizeS
+              baseSize: Style.baseWidgetSize
+              customRadius: Style.iRadiusS
+              enabled: (pluginApi?.pluginSettings?.completedCount ?? 0) > 0
+              ToolTip.visible: hovered
+              ToolTip.text: pluginApi?.tr("panel.header.clear_completed_button")
+              ToolTip.delay: 800
               onClicked: {
                 clearCompletedTodos();
               }
@@ -308,10 +330,13 @@ Item {
               }
             }
 
-            ListView {
-              id: todoListView
+            Item {
               Layout.fillWidth: true
               Layout.fillHeight: true
+
+            ListView {
+              id: todoListView
+              anchors.fill: parent
               clip: true
               model: root.filteredTodosModel
               spacing: Style.marginS
@@ -321,7 +346,22 @@ Item {
               delegate: Item {
                 id: delegateItem
                 width: ListView.view.width
-                height: Style.baseWidgetSize + Style.marginS
+                property bool hasMeta: (modelData.dueDate !== "") || (modelData.subtaskCount > 0)
+                property bool subtasksExpanded: false
+                property int subtaskRowH: Math.round(Style.baseWidgetSize * 0.85) + 2
+                property var subtaskItems: {
+                  if (!subtasksExpanded) return [];
+                  var subs = [];
+                  var pid = String(modelData.id);
+                  var todos = root.rawTodos || [];
+                  for (var i = 0; i < todos.length; i++) {
+                    if (String(todos[i].parentId) === pid) subs.push(todos[i]);
+                  }
+                  return subs;
+                }
+                height: Style.baseWidgetSize + (hasMeta ? 18 : 0) + Style.marginS
+                        + (subtasksExpanded && modelData.subtaskCount > 0
+                           ? modelData.subtaskCount * subtaskRowH + Style.marginS : 0)
 
                 required property int index
                 required property var modelData
@@ -378,44 +418,7 @@ Item {
                   }
                 }
 
-                // Position binding for non-dragging state
-                y: {
-                  if (delegateItem.dragging) {
-                    return delegateItem.y;
-                  }
-
-                  var draggedIndex = -1;
-                  var targetIndex = -1;
-                  for (var i = 0; i < todoListView.count; i++) {
-                    var item = todoListView.itemAtIndex(i);
-                    if (item && item.dragging) {
-                      draggedIndex = item.dragStartIndex;
-                      targetIndex = item.dragTargetIndex;
-                      break;
-                    }
-                  }
-
-                  // If an item is being dragged, adjust positions
-                  if (draggedIndex !== -1 && targetIndex !== -1 && draggedIndex !== targetIndex) {
-                    var currentIndex = delegateItem.index;
-
-                    if (draggedIndex < targetIndex) {
-                      if (currentIndex > draggedIndex && currentIndex <= targetIndex) {
-                        return (currentIndex - 1) * (delegateItem.height + delegateItem.itemSpacing);
-                      }
-                    } else {
-                      if (currentIndex >= targetIndex && currentIndex < draggedIndex) {
-                        return (currentIndex + 1) * (delegateItem.height + delegateItem.itemSpacing);
-                      }
-                    }
-                  }
-
-                  return delegateItem.index * (delegateItem.height + delegateItem.itemSpacing);
-                }
-
-                // Behavior for smooth animation when not dragging
-                Behavior on y {
-                  enabled: !delegateItem.dragging
+                Behavior on height {
                   NumberAnimation {
                     duration: Style.animationNormal
                     easing.type: Easing.OutQuad
@@ -439,12 +442,15 @@ Item {
                   }
 
                   RowLayout {
+                    id: mainTaskRow
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: Math.round(Style.marginS / 2)
                     anchors.leftMargin: Style.marginM
                     anchors.rightMargin: Style.marginM
                     spacing: Style.marginS
+                    height: Style.baseWidgetSize + (delegateItem.hasMeta ? 18 : 0)
 
                     // Drag handle
                     Item {
@@ -522,11 +528,19 @@ Item {
                                                newY = Math.max(0, Math.min(newY, todoListView.contentHeight - delegateItem.height));
                                                delegateItem.y = newY;
 
-                                               // Calculate target index (but don't apply yet)
-                                               var targetIndex = Math.floor((newY + delegateItem.height / 2) / (delegateItem.height + delegateItem.itemSpacing));
-                                               targetIndex = Math.max(0, Math.min(targetIndex, todoListView.count - 1));
-
-                                               delegateItem.dragTargetIndex = targetIndex;
+                                               // Determine target index by finding which item the dragged center overlaps
+                                               var centerY = newY + delegateItem.height / 2;
+                                               var bestIdx = delegateItem.dragStartIndex;
+                                               for (var k = 0; k < todoListView.count; k++) {
+                                                 var itm = todoListView.itemAtIndex(k);
+                                                 if (itm && !itm.dragging) {
+                                                   if (centerY >= itm.y && centerY < itm.y + itm.height) {
+                                                     bestIdx = k;
+                                                     break;
+                                                   }
+                                                 }
+                                               }
+                                               delegateItem.dragTargetIndex = bestIdx;
                                              }
                                            }
 
@@ -635,11 +649,72 @@ Item {
                         text: modelData.text
                         color: modelData.completed ? Color.mOnSurfaceVariant : Color.mOnSurface
                         font.strikeout: modelData.completed
-                        verticalAlignment: Text.AlignVCenter
+                        verticalAlignment: delegateItem.hasMeta ? Text.AlignTop : Text.AlignVCenter
+                        topPadding: delegateItem.hasMeta ? Style.marginS : 0
                         elide: Text.ElideRight
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: metaChips.visible ? metaChips.left : parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
                         anchors.leftMargin: Style.marginS
-                        anchors.rightMargin: Style.marginS
+                        anchors.rightMargin: Style.marginXS
+                      }
+
+                      // Meta chips: due date + subtask count
+                      Row {
+                        id: metaChips
+                        visible: delegateItem.hasMeta && !delegateItem.editing
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 4
+                        anchors.rightMargin: Style.marginXS
+                        spacing: 4
+
+                        Rectangle {
+                          visible: modelData.dueDate !== ""
+                          width: dueDateLabel.implicitWidth + 8
+                          height: 16
+                          radius: 3
+                          color: isDueOverdue(modelData.dueDate) ? Color.mError
+                               : isDueToday(modelData.dueDate)   ? Qt.darker(Color.mPrimary, 1.3)
+                               : Color.mSurfaceVariant
+
+                          NText {
+                            id: dueDateLabel
+                            anchors.centerIn: parent
+                            text: formatDueDate(modelData.dueDate)
+                            font.pointSize: Style.fontSizeXS
+                            color: isDueOverdue(modelData.dueDate) || isDueToday(modelData.dueDate)
+                                   ? Color.mOnPrimary : Color.mOnSurfaceVariant
+                          }
+                        }
+
+                        Rectangle {
+                          id: subtaskBadge
+                          visible: modelData.subtaskCount > 0
+                          width: subtaskLabel.implicitWidth + 8
+                          height: 16
+                          radius: 3
+                          color: delegateItem.subtasksExpanded ? Color.mPrimary : Color.mSurfaceVariant
+
+                          NText {
+                            id: subtaskLabel
+                            anchors.centerIn: parent
+                            text: (delegateItem.subtasksExpanded ? "\u25bc" : "\u25b6") + " " + modelData.subtaskCount
+                            font.pointSize: Style.fontSizeXS
+                            color: delegateItem.subtasksExpanded ? Color.mOnPrimary : Color.mOnSurfaceVariant
+                          }
+
+                          MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: function(mouse) {
+                              delegateItem.subtasksExpanded = !delegateItem.subtasksExpanded;
+                              mouse.accepted = true;
+                            }
+                          }
+                        }
                       }
 
                       // Edit text field - Using TextField directly to have more control
@@ -1051,6 +1126,74 @@ Item {
                       }
                     }
                   }
+
+                  // Inline subtask dropdown
+                  Column {
+                    visible: delegateItem.subtasksExpanded && modelData.subtaskCount > 0
+                    clip: true
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: mainTaskRow.bottom
+                    anchors.leftMargin: Style.marginM + Math.round(Style.baseWidgetSize * 0.5) + Style.marginS + 4 + Style.marginS + Math.round(Style.baseWidgetSize * 0.7) + Style.marginS
+                    anchors.rightMargin: Style.marginM
+                    spacing: 2
+
+                    Repeater {
+                      model: delegateItem.subtaskItems
+
+                      delegate: RowLayout {
+                        width: parent.width
+                        height: delegateItem.subtaskRowH
+                        required property var modelData
+
+                        Rectangle {
+                          width: 14; height: 14
+                          radius: 2
+                          color: modelData.completed ? Color.mPrimary : "transparent"
+                          border.color: Color.mOutline
+                          border.width: 1
+
+                          NIcon {
+                            visible: modelData.completed
+                            anchors.centerIn: parent
+                            icon: "check"
+                            color: Color.mOnPrimary
+                            pointSize: Style.fontSizeXS
+                          }
+
+                          MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: updateTodo(modelData.id, { completed: !modelData.completed })
+                          }
+                        }
+
+                        NText {
+                          text: modelData.text
+                          font.pointSize: Style.fontSizeS
+                          font.strikeout: modelData.completed
+                          color: modelData.completed ? Color.mOnSurfaceVariant : Color.mOnSurface
+                          Layout.fillWidth: true
+                          elide: Text.ElideRight
+                        }
+
+                        NIcon {
+                          icon: "x"
+                          pointSize: Style.fontSizeS
+                          color: Color.mOnSurfaceVariant
+                          opacity: 0.5
+
+                          MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: removeTodo(modelData.id)
+                            onContainsMouseChanged: parent.opacity = containsMouse ? 1.0 : 0.5
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
 
@@ -1060,6 +1203,18 @@ Item {
 
               header: null
             }
+
+            // Empty state overlay
+              NText {
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -40
+                visible: root.filteredTodosModel.count === 0 && root.showEmptyState
+                text: pluginApi?.tr("panel.empty_state.message")
+                color: Color.mOnSurfaceVariant
+                font.pointSize: Style.fontSizeM
+                font.weight: Font.Normal
+              }
+            } // end fillHeight Item
 
             // ── Completed section ──────────────────────────────────────
             // Header row: "▶/▼ Completed (N)" — only when there are completed todos
@@ -1197,22 +1352,6 @@ Item {
               }
             }
 
-            // Empty state overlay - using a separate container that doesn't interfere with layout
-            Item {
-              Layout.fillWidth: true
-              Layout.fillHeight: true
-              Layout.alignment: Qt.AlignCenter
-              visible: root.filteredTodosModel.count === 0 && root.showEmptyState
-
-              NText {
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: -100
-                text: pluginApi?.tr("panel.empty_state.message")
-                color: Color.mOnSurfaceVariant
-                font.pointSize: Style.fontSizeM
-                font.weight: Font.Normal
-              }
-            }
           }
         }
       }
@@ -1230,14 +1369,42 @@ Item {
     property int todoPageId: 0
     property string todoPriority: "medium"
     property string todoDetails: ""
+    property string todoDueDate: ""
 
-    x: (parent.width - width) / 2
+    x: 10
     y: (parent.height - height) / 2
-    width: 500 * Style.uiScaleRatio
-    height: 300 * Style.uiScaleRatio
+    width: parent.width - 20
+    height: Math.min(520 * Style.uiScaleRatio, parent.height - 20)
     modal: true
     focus: true
     padding: 0
+
+    ListModel { id: subtasksModel }
+
+    function refreshSubtasks() {
+      subtasksModel.clear();
+      var pid = String(detailDialog.todoId);
+      var todos = root.rawTodos || [];
+      for (var i = 0; i < todos.length; i++) {
+        var t = todos[i];
+        if (String(t.parentId) === pid) {
+          subtasksModel.append({
+            id: t.id, text: t.text,
+            completed: t.completed === true,
+            parentId: String(t.parentId)
+          });
+        }
+      }
+    }
+
+    onOpened: refreshSubtasks()
+
+    Connections {
+      target: root
+      function onRawTodosChanged() {
+        if (detailDialog.visible) detailDialog.refreshSubtasks();
+      }
+    }
 
     // Background
     background: Rectangle {
@@ -1581,6 +1748,53 @@ Item {
               }
             }
 
+            // Due date
+            RowLayout {
+              spacing: Style.marginS
+              Layout.fillWidth: true
+
+              NText {
+                text: pluginApi?.tr("panel.todo_details.label_due_date")
+                font.pointSize: Style.fontSizeS
+                color: Color.mOnSurfaceVariant
+                Layout.preferredWidth: 80 * Style.uiScaleRatio
+                Layout.alignment: Qt.AlignVCenter
+              }
+
+              TextField {
+                id: dueDateField
+                text: detailDialog.todoDueDate
+                placeholderText: "YYYY-MM-DD"
+                Layout.fillWidth: true
+                font.pointSize: Style.fontSizeS
+                color: Color.mOnSurface
+                leftPadding: Style.marginS
+                rightPadding: Style.marginS
+                background: Rectangle {
+                  color: Color.mSurfaceVariant
+                  radius: Style.iRadiusS
+                }
+                onEditingFinished: {
+                  var val = dueDateField.text.trim();
+                  if (val === "" || /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+                    updateTodo(detailDialog.todoId, { dueDate: val });
+                    detailDialog.todoDueDate = val;
+                  }
+                }
+              }
+
+              NIconButton {
+                icon: "x"
+                baseSize: Style.baseWidgetSize * 0.8
+                visible: detailDialog.todoDueDate !== ""
+                onClicked: {
+                  updateTodo(detailDialog.todoId, { dueDate: "" });
+                  detailDialog.todoDueDate = "";
+                  dueDateField.text = "";
+                }
+              }
+            }
+
             // Created date
             RowLayout {
               spacing: Style.marginS
@@ -1601,6 +1815,112 @@ Item {
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
+              }
+            }
+          }
+
+          // ── Subtasks section ───────────────────────────────────────────
+          ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Style.marginS
+
+            Rectangle {
+              height: 1
+              color: Color.mOutline
+              opacity: 0.3
+              Layout.fillWidth: true
+            }
+
+            NText {
+              text: pluginApi?.tr("panel.todo_details.label_subtasks")
+              font.pointSize: Style.fontSizeS
+              color: Color.mOnSurfaceVariant
+            }
+
+            Repeater {
+              model: subtasksModel
+
+              delegate: RowLayout {
+                Layout.fillWidth: true
+                spacing: Style.marginS
+                required property var modelData
+                required property int index
+
+                Rectangle {
+                  width: 18; height: 18
+                  radius: 3
+                  color: modelData.completed ? Color.mPrimary : "transparent"
+                  border.color: Color.mOutline
+                  border.width: 1
+
+                  NIcon {
+                    visible: modelData.completed
+                    anchors.centerIn: parent
+                    icon: "check"
+                    color: Color.mOnPrimary
+                    pointSize: Style.fontSizeXS
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: updateTodo(modelData.id, { completed: !modelData.completed })
+                  }
+                }
+
+                NText {
+                  text: modelData.text
+                  font.pointSize: Style.fontSizeS
+                  font.strikeout: modelData.completed
+                  color: modelData.completed ? Color.mOnSurfaceVariant : Color.mOnSurface
+                  Layout.fillWidth: true
+                  elide: Text.ElideRight
+                }
+
+                NIcon {
+                  icon: "x"
+                  pointSize: Style.fontSizeS
+                  color: Color.mOnSurfaceVariant
+                  opacity: 0.5
+
+                  MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: removeTodo(modelData.id)
+                    onContainsMouseChanged: parent.opacity = containsMouse ? 1.0 : 0.5
+                  }
+                }
+              }
+            }
+
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.marginS
+
+              NTextInput {
+                id: newSubtaskInput
+                placeholderText: pluginApi?.tr("panel.todo_details.add_subtask_placeholder")
+                Layout.fillWidth: true
+                Keys.onReturnPressed: {
+                  var t = newSubtaskInput.text.trim();
+                  if (t && mainInstance) {
+                    mainInstance.addSubtask(detailDialog.todoId, t);
+                    newSubtaskInput.text = "";
+                  }
+                }
+              }
+
+              NIconButton {
+                icon: "plus"
+                baseSize: Style.baseWidgetSize * 0.9
+                onClicked: {
+                  var t = newSubtaskInput.text.trim();
+                  if (t && mainInstance) {
+                    mainInstance.addSubtask(detailDialog.todoId, t);
+                    newSubtaskInput.text = "";
+                  }
+                }
               }
             }
           }
@@ -1719,6 +2039,34 @@ Item {
     return "Unknown";
   }
 
+  function formatDueDate(dateStr) {
+    if (!dateStr) return "";
+    var d = new Date(dateStr);
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var due = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var diff = Math.round((due - today) / 86400000);
+    if (diff < 0)  return "overdue";
+    if (diff === 0) return "today";
+    if (diff === 1) return "tmrw";
+    if (diff < 7)  return diff + "d";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function isDueOverdue(dateStr) {
+    if (!dateStr) return false;
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(dateStr) < today;
+  }
+
+  function isDueToday(dateStr) {
+    if (!dateStr) return false;
+    var d = new Date(dateStr);
+    var t = new Date();
+    return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+  }
+
   // Function to open the detailed view for a todo item
   function openTodoDetails(todo) {
     detailsEditMode = false;
@@ -1731,6 +2079,7 @@ Item {
     detailDialog.todoPageId = todo.pageId;
     detailDialog.todoPriority = todo.priority;
     detailDialog.todoDetails = todo.details || "";
+    detailDialog.todoDueDate = todo.dueDate || "";
 
     detailDialog.open();
   }
@@ -1750,7 +2099,11 @@ Item {
     // Split todos into active and completed models
     for (var i = 0; i < pluginTodos.length; i++) {
       var todo = pluginTodos[i];
-      if (todo.pageId === currentPageId) {
+      if (todo.pageId === currentPageId && !todo.parentId) {
+        var subtaskCount = 0;
+        for (var j = 0; j < pluginTodos.length; j++) {
+          if (String(pluginTodos[j].parentId) === String(todo.id)) subtaskCount++;
+        }
         var todoItem = {
           id: todo.id,
           text: todo.text,
@@ -1758,7 +2111,10 @@ Item {
           createdAt: todo.createdAt,
           pageId: todo.pageId,
           priority: todo.priority,
-          details: todo.details
+          details: todo.details,
+          dueDate: todo.dueDate || "",
+          parentId: todo.parentId || "",
+          subtaskCount: subtaskCount
         };
 
         if (todo.completed) {

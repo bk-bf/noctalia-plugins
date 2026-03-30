@@ -13,8 +13,7 @@ Sync rules (local is considered the source of truth for content):
   - Local todo WITHOUT googleTaskId → create in Google, store the new ID back
   - Google task NOT matched locally → import into local (from another device / web)
 
-Priority is encoded in the Google task's notes field as [priority:high/medium/low]
-so it round-trips cleanly.  The rest of notes becomes the local "details" field.
+Details are stored in Google task notes as plain text.
 """
 
 import sys
@@ -55,24 +54,15 @@ def api_delete(url, token):     return _api("DELETE", url, token)
 
 
 # ---------------------------------------------------------------------------
-# Priority <-> notes encoding
+# Notes encoding (details only — no priority)
 # ---------------------------------------------------------------------------
 
-def encode_notes(priority, details):
-    tag = f"[priority:{priority}]"
-    return f"{tag} {details}".strip() if details else tag
+def encode_notes(details):
+    return (details or "").strip()
 
 
 def decode_notes(notes):
-    priority = "medium"
-    details = (notes or "").strip()
-    for p in ("high", "medium", "low"):
-        tag = f"[priority:{p}]"
-        if tag in details:
-            priority = p
-            details = details.replace(tag, "").strip()
-            break
-    return priority, details
+    return (notes or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +90,12 @@ def main():
     todos       = json.loads(base64.b64decode(sys.argv[2]))
     pages       = json.loads(base64.b64decode(sys.argv[3]))
     output_file = sys.argv[4] if len(sys.argv) > 4 else "/dev/null"
+    filter_page_id = int(sys.argv[5]) if len(sys.argv) > 5 else None
+
+    # Per-list mode: restrict to one page and its todos only
+    if filter_page_id is not None:
+        pages = [p for p in pages if p.get("id") == filter_page_id]
+        todos = [t for t in todos if t.get("pageId") == filter_page_id]
 
     BASE = "https://tasks.googleapis.com/tasks/v1"
 
@@ -134,23 +130,25 @@ def main():
 
     # Also create local pages for Google Task lists that have no local page yet
     # (e.g. "My Tasks" on a fresh install, or lists created on another device)
-    mapped_gl_ids = set(page_to_list.values())
-    existing_ids  = [p["id"] for p in updated_pages]
-    next_page_id  = (max(existing_ids) + 1) if existing_ids else 1
-    for gl_id, gl_list in by_id.items():
-        if gl_id in mapped_gl_ids:
-            continue
-        title = gl_list.get("title", "").strip()
-        if not title:
-            continue
-        new_page = {
-            "id":           next_page_id,
-            "name":         title,
-            "googleListId": gl_id,
-        }
-        updated_pages.append(new_page)
-        page_to_list[next_page_id] = gl_id
-        next_page_id += 1
+    # Only during full sync — skip when doing a per-list sync.
+    if filter_page_id is None:
+        mapped_gl_ids = set(page_to_list.values())
+        existing_ids  = [p["id"] for p in updated_pages]
+        next_page_id  = (max(existing_ids) + 1) if existing_ids else 1
+        for gl_id, gl_list in by_id.items():
+            if gl_id in mapped_gl_ids:
+                continue
+            title = gl_list.get("title", "").strip()
+            if not title:
+                continue
+            new_page = {
+                "id":           next_page_id,
+                "name":         title,
+                "googleListId": gl_id,
+            }
+            updated_pages.append(new_page)
+            page_to_list[next_page_id] = gl_id
+            next_page_id += 1
 
     # ------------------------------------------------------------------
     # Step 2: Fetch all existing Google tasks per list (paginated)
@@ -176,24 +174,36 @@ def main():
 
     # ------------------------------------------------------------------
     # Step 3: Push every local todo to Google (create or update)
+    # Sort so top-level tasks are pushed before subtasks.
     # ------------------------------------------------------------------
+    # Pre-build local_id -> googleTaskId for already-synced tasks
+    local_to_google: dict = {}
+    for t in todos:
+        lid = str(t.get("id", ""))
+        gtid = t.get("googleTaskId", "")
+        if lid and gtid:
+            local_to_google[lid] = gtid
+
+    todos_sorted = sorted(todos, key=lambda t: 0 if not t.get("parentId") else 1)
+
     updated_todos = []
     seen_google_ids = set()
 
-    for todo in todos:
+    for todo in todos_sorted:
         todo = dict(todo)
         gl_id = page_to_list.get(todo.get("pageId", 0))
         if not gl_id:
             updated_todos.append(todo)
             continue
 
+        due_date = todo.get("dueDate", "")
         payload = {
             "title":  todo.get("text", ""),
             "status": "completed" if todo.get("completed") else "needsAction",
             "notes":  encode_notes(
-                          todo.get("priority", "medium"),
                           todo.get("details", ""),
                       ),
+            "due": (due_date + "T00:00:00.000Z") if due_date else None,
         }
 
         google_task_id = todo.get("googleTaskId", "")
@@ -201,10 +211,25 @@ def main():
             api_patch(f"{BASE}/lists/{gl_id}/tasks/{google_task_id}", token, payload)
             todo["googleListId"] = gl_id
             seen_google_ids.add(google_task_id)
+            local_to_google[str(todo.get("id", ""))] = google_task_id
+        elif google_task_id:
+            # Had a Google ID but not found on Google anymore — was deleted there, drop locally
+            continue
         else:
-            new_task = api_post(f"{BASE}/lists/{gl_id}/tasks", token, payload)
+            create_url = f"{BASE}/lists/{gl_id}/tasks"
+            parent_local_id = str(todo.get("parentId", ""))
+            parent_google_id = (
+                local_to_google.get(parent_local_id, "")
+                or todo.get("googleParentTaskId", "")
+            )
+            if parent_google_id:
+                create_url += f"?parent={parent_google_id}"
+            new_task = api_post(create_url, token, payload)
             todo["googleTaskId"] = new_task["id"]
             todo["googleListId"] = gl_id
+            if parent_google_id:
+                todo["googleParentTaskId"] = parent_google_id
+            local_to_google[str(todo.get("id", ""))] = new_task["id"]
             seen_google_ids.add(new_task["id"])
 
         updated_todos.append(todo)
@@ -222,25 +247,43 @@ def main():
             title = task.get("title", "").strip()
             if not title:
                 continue  # skip blank / deleted stubs
-            priority, details = decode_notes(task.get("notes", ""))
+            details = decode_notes(task.get("notes", ""))
             new_todo = {
-                "id":           unique_local_id(),
-                "text":         title,
-                "completed":    task.get("status") == "completed",
-                "createdAt":    task.get("due") or now_iso(),
-                "pageId":       page["id"],
-                "priority":     priority,
-                "details":      details,
-                "googleTaskId": task_id,
-                "googleListId": gl_id,
+                "id":                 unique_local_id(),
+                "text":               title,
+                "completed":          task.get("status") == "completed",
+                "createdAt":          now_iso(),
+                "pageId":             page["id"],
+                "priority":           "medium",
+                "details":            details,
+                "dueDate":            task.get("due", "")[:10] if task.get("due") else "",
+                "parentId":           "",  # resolved in Step 5
+                "googleTaskId":       task_id,
+                "googleListId":       gl_id,
+                "googleParentTaskId": task.get("parent", ""),
             }
             updated_todos.append(new_todo)
             seen_google_ids.add(task_id)
 
     # ------------------------------------------------------------------
+    # Step 5: Resolve parentId from googleParentTaskId for imported tasks
+    # ------------------------------------------------------------------
+    gtid_to_local: dict = {}
+    for t in updated_todos:
+        gtid = t.get("googleTaskId", "")
+        if gtid:
+            gtid_to_local[gtid] = t["id"]
+    for t in updated_todos:
+        gp = t.get("googleParentTaskId", "")
+        if gp and not t.get("parentId") and gp in gtid_to_local:
+            t["parentId"] = gtid_to_local[gp]
+
+    # ------------------------------------------------------------------
     # Write result
     # ------------------------------------------------------------------
-    result = {"todos": updated_todos, "pages": updated_pages}
+    result: dict = {"todos": updated_todos, "pages": updated_pages}
+    if filter_page_id is not None:
+        result["filter_page_id"] = filter_page_id
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(result, f)
     print(json.dumps(result), flush=True)
@@ -250,10 +293,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Print a structured error so QML can surface it
-        err_msg = str(exc).replace('"', '\\"')
         output_file = sys.argv[4] if len(sys.argv) > 4 else "/dev/null"
-        err_json = f'{{"error": "{err_msg}"}}'
+        err_json = json.dumps({"error": str(exc)})
         if output_file != "/dev/null":
             with open(output_file, "w") as f:
                 f.write(err_json)

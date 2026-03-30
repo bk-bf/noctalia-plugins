@@ -451,6 +451,19 @@ ColumnLayout {
                     }
 
                     NIconButton {
+                      icon: modelData.syncEnabled === false ? "cloud-slash" : "cloud"
+                      colorFg: modelData.syncEnabled === false ? Color.mOnSurfaceVariant : Color.mPrimary
+                      tooltipText: modelData.syncEnabled === false
+                          ? pluginApi?.tr("settings.pages.sync_disabled_tooltip")
+                          : pluginApi?.tr("settings.pages.sync_enabled_tooltip")
+                      visible: (mainInstance?.googleSignedInEmail || "") !== ""
+                      onClicked: {
+                        if (mainInstance)
+                          mainInstance.setPageSyncEnabled(modelData.id, modelData.syncEnabled === false);
+                      }
+                    }
+
+                    NIconButton {
                       icon: "trash"
                       tooltipText: pluginApi?.tr("settings.pages.delete_button_tooltip")
                       colorFg: Color.mError

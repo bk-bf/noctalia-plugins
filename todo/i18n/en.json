@@ -62,6 +62,8 @@
       "clear_completed_button": "Clear Completed",
       "export_button": "Export",
       "sync_button": "Sync",
+      "sync_list_button": "Sync This List",
+      "sync_all_button": "Sync All Lists",
       "title": "Todo List"
     },
     "todo_details": {
@@ -74,6 +76,9 @@
       "label_priority": "Priority: ",
       "label_page": "Page:",
       "label_details": "Details:",
+      "label_due_date": "Due:",
+      "label_subtasks": "Subtasks",
+      "add_subtask_placeholder": "Add subtask…",
       "button_add_details": "Add",
       "button_edit_details": "Edit",
       "button_save": "Save",
@@ -131,6 +136,8 @@
       "confirm_delete_message": "Are you sure you want to delete page '{pageName}'?\n\nAll todos in this page will be transferred to the first page.",
       "rename_button_tooltip": "Rename",
       "delete_button_tooltip": "Delete",
+      "sync_enabled_tooltip": "Sync enabled — click to disable",
+      "sync_disabled_tooltip": "Sync disabled — click to enable",
       "added_page": "Added page: ",
       "deleted_page": "Deleted page",
       "renamed_page": "Renamed page"
@@ -153,6 +160,7 @@
     "sync_success": "Google Tasks synced successfully",
     "auth_failed": "Google authentication failed",
     "sync_failed": "Google Tasks sync failed",
+    "rename_list_failed": "Failed to rename Google Task list",
     "error_no_client_id": "Please enter your Google OAuth client ID first",
     "error_not_signed_in": "Please sign in to Google Tasks first",
     "error_not_signed_in_panel": "Sign in to Google Tasks first via the plugin Settings"

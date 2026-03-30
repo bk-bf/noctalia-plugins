@@ -14,6 +14,60 @@ Item {
   property string googleSyncStatus: "idle"  // "idle" | "authenticating" | "syncing" | "error"
   property string googleSyncError: ""
   property string googleSignedInEmail: ""
+  property var googleSyncExcludedPageIds: []
+  property string googleSyncTmpFile: ""
+  property string googleAuthTmpFile: ""
+
+  FileView {
+    id: syncResultView
+    path: ""
+    onLoaded: {
+      var content = syncResultView.text();
+      if (!content || content.trim().length === 0) return;
+      path = "";  // consume once only
+      try {
+        var res = JSON.parse(content.trim());
+        if (res.error) throw new Error(res.error);
+        if (res.todos && res.pages) {
+          if (res.filter_page_id !== undefined) {
+            var filterId = res.filter_page_id;
+            var kept = rawTodos.filter(function(t) { return t.pageId !== filterId; });
+            rawTodos = kept.concat(res.todos);
+            for (var i = 0; i < rawPages.length; i++) {
+              if (rawPages[i].id === filterId && res.pages.length > 0) {
+                rawPages[i] = res.pages[0];
+                break;
+              }
+            }
+          } else {
+            var excl = googleSyncExcludedPageIds;
+            if (excl.length > 0) {
+              var keptTodos = rawTodos.filter(function(t) { return excl.indexOf(t.pageId) >= 0; });
+              rawTodos = keptTodos.concat(res.todos);
+              rawPages = rawPages.map(function(p) {
+                if (excl.indexOf(p.id) >= 0) return p;
+                var updated = res.pages.filter(function(rp) { return rp.id === p.id; })[0];
+                return updated || p;
+              });
+            } else {
+              rawTodos = res.todos.slice();
+              rawPages = res.pages.slice();
+            }
+            googleSyncExcludedPageIds = [];
+          }
+          saveTodos();
+          savePages();
+          googleSyncStatus = "idle";
+        } else {
+          throw new Error("Invalid sync response");
+        }
+      } catch (e) {
+        googleSyncStatus = "error";
+        googleSyncError = e.message || pluginApi.tr("google_sync.sync_failed");
+        ToastService.showError(googleSyncError);
+      }
+    }
+  }
 
   // Process for exporting todos
   Process {
@@ -44,7 +98,6 @@ Item {
           googleSignedInEmail = email;
           googleSyncStatus = "idle";
           ToastService.showNotice(pluginApi.tr("google_sync.signed_in") + email);
-          Qt.callLater(doGoogleSync);
         } else {
           googleSyncStatus = "error";
           googleSyncError = res.error || pluginApi.tr("google_sync.auth_failed");
@@ -57,40 +110,34 @@ Item {
       }
     }
   }
-  property string googleAuthTempFile: ""
-
-  // Auto-sync timer: fires every 15 minutes while signed in
-  Timer {
-    id: googleAutoSyncTimer
-    interval: 900000
-    repeat: true
-    running: googleSignedInEmail !== ""
-    onTriggered: doGoogleSync()
-  }
-
-  // Sync process — runs google_sync.sh, reads JSON result from stdout
+  // Sync process — runs google_sync.sh, writes result to temp file
   Process {
     id: googleSyncProcess
     running: false
-    stdout: StdioCollector { id: googleSyncStdout }
     onExited: function (code) {
-      try {
-        var res = JSON.parse(googleSyncStdout.text);
-        if (res.error) throw new Error(res.error);
-        if (res.todos && res.pages) {
-          rawTodos = res.todos.slice();
-          rawPages = res.pages.slice();
-          saveTodos();
-          savePages();
-          googleSyncStatus = "idle";
-          ToastService.showNotice(pluginApi.tr("google_sync.sync_success"));
-        } else {
-          throw new Error("Invalid sync response");
-        }
-      } catch (e) {
+      if (googleSyncTmpFile !== "") {
+        syncResultView.path = googleSyncTmpFile;
+        googleSyncTmpFile = "";
+      } else {
         googleSyncStatus = "error";
-        googleSyncError = e.message || pluginApi.tr("google_sync.sync_failed");
+        googleSyncError = pluginApi.tr("google_sync.sync_failed");
         ToastService.showError(googleSyncError);
+      }
+    }
+  }
+
+  // Rename-list process — PATCHes a Google Task list title
+  Process {
+    id: googleRenameListProcess
+    running: false
+    stdout: StdioCollector { id: googleRenameListStdout }
+    onExited: function(code) {
+      if (code !== 0) {
+        try {
+          var res = JSON.parse(googleRenameListStdout.text);
+          if (res.error)
+            ToastService.showError(pluginApi.tr("google_sync.rename_list_failed") + ": " + res.error);
+        } catch(e) {}
       }
     }
   }
@@ -178,6 +225,12 @@ Item {
           rawTodos[i].googleTaskId = "";
         if (rawTodos[i].googleListId === undefined)
           rawTodos[i].googleListId = "";
+        if (rawTodos[i].dueDate === undefined)
+          rawTodos[i].dueDate = "";
+        if (rawTodos[i].parentId === undefined)
+          rawTodos[i].parentId = "";
+        if (rawTodos[i].googleParentTaskId === undefined)
+          rawTodos[i].googleParentTaskId = "";
       }
 
       // Initialize Google Sync settings
@@ -191,13 +244,13 @@ Item {
         pluginApi.pluginSettings.googleSync.clientSecret = "";
       }
       googleSignedInEmail = pluginApi.pluginSettings.googleSync.signedInEmail || "";
-      if (googleSignedInEmail)
-        Qt.callLater(doGoogleSync);
 
-      // Data migration: add googleListId to pages
+      // Data migration: add googleListId and syncEnabled to pages
       for (var i = 0; i < rawPages.length; i++) {
         if (rawPages[i].googleListId === undefined)
           rawPages[i].googleListId = "";
+        if (rawPages[i].syncEnabled === undefined)
+          rawPages[i].syncEnabled = true;
       }
 
       pluginApi.saveSettings();
@@ -410,7 +463,12 @@ Item {
       createdAt: new Date().toISOString(),
       pageId: pageId,
       priority: priority,
-      details: ""
+      details: "",
+      dueDate: "",
+      parentId: "",
+      googleTaskId: "",
+      googleListId: "",
+      googleParentTaskId: ""
     };
 
     var insertIndex = rawTodos.length;
@@ -442,6 +500,10 @@ Item {
       rawTodos[index].priority = updates.priority;
     if (updates.details !== undefined)
       rawTodos[index].details = updates.details;
+    if (updates.dueDate !== undefined)
+      rawTodos[index].dueDate = updates.dueDate;
+    if (updates.parentId !== undefined)
+      rawTodos[index].parentId = updates.parentId;
 
     // If completion status changed, reorder todos
     if (updates.completed !== undefined && oldCompleted !== updates.completed) {
@@ -458,6 +520,7 @@ Item {
     var index = findTodoIndex(id);
     if (index === -1)
       return false;
+    var pageId = rawTodos[index].pageId;
     rawTodos.splice(index, 1);
     saveTodos();
     return true;
@@ -491,13 +554,17 @@ Item {
 
   // Rename page (internal)
   function renamePageInternal(pageId, newName) {
+    var googleListId = "";
     for (var i = 0; i < rawPages.length; i++) {
       if (rawPages[i].id === pageId) {
+        googleListId = rawPages[i].googleListId || "";
         rawPages[i].name = newName;
         break;
       }
     }
     savePages();
+    if (googleSignedInEmail && googleListId)
+      doGoogleRenameList(googleListId, newName);
     return true;
   }
 
@@ -857,6 +924,28 @@ Item {
     return Qt.resolvedUrl("scripts/" + name).toString().replace(/^file:\/\//, "");
   }
 
+  function addSubtask(parentId, text) {
+    if (!text || !text.trim()) return;
+    var parent = findTodo(parentId);
+    if (!parent) return;
+    var newSub = {
+      id: Date.now(),
+      text: text.trim(),
+      completed: false,
+      createdAt: new Date().toISOString(),
+      pageId: parent.pageId,
+      priority: "medium",
+      details: "",
+      dueDate: "",
+      parentId: parentId,
+      googleTaskId: "",
+      googleListId: "",
+      googleParentTaskId: ""
+    };
+    rawTodos.push(newSub);
+    saveTodos();
+  }
+
   function doGoogleSignIn(clientId, clientSecret) {
     if (!pluginApi) return;
     clientId = (clientId || pluginApi.pluginSettings.googleSync.clientId || "").trim();
@@ -872,17 +961,17 @@ Item {
     if (googleAuthProcess.running) return;
     googleSyncStatus = "authenticating";
     googleSyncError = "";
-    googleAuthTempFile = "/tmp/noctalia_todo_auth_" + Date.now() + ".json";
+    googleAuthTmpFile = "/tmp/noctalia_todo_auth_" + Date.now() + ".json";
     googleAuthProcess.command = [
       "python3", resolveScript("google_auth.py"),
       clientId,
       clientSecret,
-      googleAuthTempFile
+      googleAuthTmpFile
     ];
     googleAuthProcess.running = true;
   }
 
-  function doGoogleSync() {
+  function doGoogleSync(pageId) {
     if (!pluginApi) return;
     if (googleSyncProcess.running || googleAuthProcess.running) return;
     if (!pluginApi.pluginSettings.googleSync.signedInEmail) {
@@ -891,14 +980,53 @@ Item {
     }
     googleSyncStatus = "syncing";
     googleSyncError = "";
-    var todosB64 = Qt.btoa(JSON.stringify(rawTodos));
-    var pagesB64 = Qt.btoa(JSON.stringify(rawPages));
-    googleSyncProcess.command = [
-      "bash", resolveScript("google_sync.sh"),
-      todosB64,
-      pagesB64
-    ];
+
+    // For "sync all": skip pages the user has opted out of syncing
+    var syncPages, excludedIds = [];
+    if (pageId === undefined || pageId === null) {
+      syncPages = rawPages.filter(function(p) {
+        if (p.syncEnabled === false) { excludedIds.push(p.id); return false; }
+        return true;
+      });
+    } else {
+      syncPages = rawPages;
+    }
+    googleSyncExcludedPageIds = excludedIds;
+
+    var syncTodos = rawTodos.filter(function(t) {
+      return syncPages.some(function(p) { return p.id === t.pageId; });
+    });
+
+    var todosB64 = Qt.btoa(JSON.stringify(syncTodos));
+    var pagesB64 = Qt.btoa(JSON.stringify(syncPages));
+    var tmpFile = "/tmp/noctalia_todo_sync_" + Date.now() + ".json";
+    googleSyncTmpFile = tmpFile;
+    var args = ["bash", resolveScript("google_sync.sh"), todosB64, pagesB64, tmpFile];
+    if (pageId !== undefined && pageId !== null)
+      args.push(String(pageId));
+    googleSyncProcess.command = args;
     googleSyncProcess.running = true;
+  }
+
+  function doGoogleRenameList(listId, newTitle) {
+    if (!listId || !newTitle) return;
+    if (googleRenameListProcess.running) return;
+    googleRenameListProcess.command = [
+      "bash", resolveScript("google_rename_list.sh"),
+      listId, newTitle
+    ];
+    googleRenameListProcess.running = true;
+  }
+
+  function setPageSyncEnabled(pageId, value) {
+    for (var i = 0; i < rawPages.length; i++) {
+      if (rawPages[i].id === pageId) {
+        rawPages[i].syncEnabled = value;
+        rawPages = rawPages.slice();
+        savePages();
+        return;
+      }
+    }
   }
 
   function doGoogleSignOut() {
