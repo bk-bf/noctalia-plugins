@@ -887,7 +887,7 @@ Item {
     googleSyncError = "";
     googleAuthTempFile = "/tmp/noctalia_todo_auth_" + Date.now() + ".json";
     googleAuthProcess.command = [
-      "bash", resolveScript("google_auth.sh"),
+      "python3", resolveScript("google_auth.py"),
       clientId,
       clientSecret,
       googleAuthTempFile
