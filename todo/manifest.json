@@ -50,7 +50,8 @@
       "exportEmptySections": false,
       "googleSync": {
         "signedInEmail": "",
-        "clientId": ""
+        "clientId": "",
+        "clientSecret": ""
       }
     }
   }

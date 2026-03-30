@@ -66,6 +66,13 @@ ColumnLayout {
         Layout.fillWidth: true
       }
 
+      NTextInput {
+        id: clientSecretInput
+        placeholderText: pluginApi?.tr("google_sync.client_secret_placeholder")
+        text: pluginApi?.pluginSettings?.googleSync?.clientSecret || ""
+        Layout.fillWidth: true
+      }
+
       NButton {
         Layout.fillWidth: true
         text: mainInstance?.googleSyncStatus === "authenticating"
@@ -73,9 +80,11 @@ ColumnLayout {
             : pluginApi?.tr("google_sync.sign_in_button")
         enabled: mainInstance?.googleSyncStatus !== "authenticating"
               && clientIdInput.text.trim().length > 0
+              && clientSecretInput.text.trim().length > 0
         onClicked: {
           if (mainInstance?.pluginApi) {
             mainInstance.pluginApi.pluginSettings.googleSync.clientId = clientIdInput.text.trim();
+            mainInstance.pluginApi.pluginSettings.googleSync.clientSecret = clientSecretInput.text.trim();
             mainInstance.pluginApi.saveSettings();
           }
           if (mainInstance) mainInstance.doGoogleSignIn();

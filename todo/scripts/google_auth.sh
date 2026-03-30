@@ -10,7 +10,8 @@
 set -uo pipefail
 
 CLIENT_ID="${1:-}"
-OUTPUT_FILE="${2:-}"
+CLIENT_SECRET="${2:-}"
+OUTPUT_FILE="${3:-}"
 
 fail() {
     local msg="${1//\"/\\\"}"
@@ -18,8 +19,9 @@ fail() {
     exit 1
 }
 
-[[ -z "$CLIENT_ID" ]]   && fail "client_id required"
-[[ -z "$OUTPUT_FILE" ]] && fail "output_file required"
+[[ -z "$CLIENT_ID" ]]     && fail "client_id required"
+[[ -z "$CLIENT_SECRET" ]] && fail "client_secret required"
+[[ -z "$OUTPUT_FILE" ]]   && fail "output_file required"
 
 SCOPE="https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email"
 REDIRECT_URI="http://127.0.0.1:9785"
@@ -94,9 +96,10 @@ print(server._code)
 TOKEN_JSON=$(python3 -c "
 import urllib.request, urllib.parse, json, sys
 
-client_id, code, verifier, redirect_uri = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+client_id, client_secret, code, verifier, redirect_uri = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 data = urllib.parse.urlencode({
     'client_id':     client_id,
+    'client_secret': client_secret,
     'code':          code,
     'code_verifier': verifier,
     'grant_type':    'authorization_code',
@@ -114,7 +117,7 @@ try:
 except urllib.error.HTTPError as e:
     print(json.dumps({'error': e.read().decode()}), file=sys.stderr)
     sys.exit(1)
-" "$CLIENT_ID" "$AUTH_CODE" "$CODE_VERIFIER" "$REDIRECT_URI") || fail "Token exchange failed"
+" "$CLIENT_ID" "$CLIENT_SECRET" "$AUTH_CODE" "$CODE_VERIFIER" "$REDIRECT_URI") || fail "Token exchange failed"
 
 ACCESS_TOKEN=$(python3 -c "
 import json, sys
@@ -140,6 +143,11 @@ printf '%s' "$CLIENT_ID" | secret-tool store \
     --label="Noctalia Todo Google Client ID" \
     service "noctalia-todo" account "google_client_id" \
     || fail "Failed to store client ID"
+
+printf '%s' "$CLIENT_SECRET" | secret-tool store \
+    --label="Noctalia Todo Google Client Secret" \
+    service "noctalia-todo" account "google_client_secret" \
+    || fail "Failed to store client secret"
 
 if [[ -n "$REFRESH_TOKEN" ]]; then
     printf '%s' "$REFRESH_TOKEN" | secret-tool store \

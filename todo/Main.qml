@@ -57,8 +57,17 @@ Item {
           ToastService.showError(googleSyncError);
         }
       } else {
+        // Try to read error from the temp file for a more helpful message
+        try {
+          var errXhr = new XMLHttpRequest();
+          errXhr.open("GET", "file://" + googleAuthTempFile, false);
+          errXhr.send();
+          var errRes = JSON.parse(errXhr.responseText);
+          googleSyncError = errRes.error || pluginApi.tr("google_sync.auth_failed");
+        } catch (_) {
+          googleSyncError = pluginApi.tr("google_sync.auth_failed");
+        }
         googleSyncStatus = "error";
-        googleSyncError = pluginApi.tr("google_sync.auth_failed");
         ToastService.showError(googleSyncError);
       }
     }
@@ -190,8 +199,11 @@ Item {
       if (!pluginApi.pluginSettings.googleSync) {
         pluginApi.pluginSettings.googleSync = {
           signedInEmail: "",
-          clientId: ""
+          clientId: "",
+          clientSecret: ""
         };
+      } else if (pluginApi.pluginSettings.googleSync.clientSecret === undefined) {
+        pluginApi.pluginSettings.googleSync.clientSecret = "";
       }
       googleSignedInEmail = pluginApi.pluginSettings.googleSync.signedInEmail || "";
 
@@ -861,8 +873,13 @@ Item {
   function doGoogleSignIn() {
     if (!pluginApi) return;
     var clientId = (pluginApi.pluginSettings.googleSync.clientId || "").trim();
+    var clientSecret = (pluginApi.pluginSettings.googleSync.clientSecret || "").trim();
     if (!clientId) {
       ToastService.showError(pluginApi.tr("google_sync.error_no_client_id"));
+      return;
+    }
+    if (!clientSecret) {
+      ToastService.showError(pluginApi.tr("google_sync.error_no_client_secret"));
       return;
     }
     if (googleAuthProcess.running) return;
@@ -872,6 +889,7 @@ Item {
     googleAuthProcess.command = [
       "bash", resolveScript("google_auth.sh"),
       clientId,
+      clientSecret,
       googleAuthTempFile
     ];
     googleAuthProcess.running = true;

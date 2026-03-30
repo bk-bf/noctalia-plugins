@@ -137,6 +137,8 @@
     "settings_label": "Google Tasks Sync",
     "settings_description": "Sync your todos with Google Tasks. Enter your Google OAuth 2.0 Desktop client ID from Google Cloud Console.",
     "client_id_placeholder": "e.g. 12345-xxx.apps.googleusercontent.com",
+    "client_secret_placeholder": "Client Secret",
+    "error_no_client_secret": "Please enter your Google OAuth client secret first",
     "sign_in_button": "Sign In with Google",
     "signing_in": "Signing in…",
     "signed_in_as": "Signed in as: ",
