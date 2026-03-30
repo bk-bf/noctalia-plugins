@@ -58,6 +58,7 @@
     "header": {
       "clear_completed_button": "Clear Completed",
       "export_button": "Export",
+      "sync_button": "Sync",
       "title": "Todo List"
     },
     "todo_details": {
@@ -148,6 +149,7 @@
     "auth_failed": "Google authentication failed",
     "sync_failed": "Google Tasks sync failed",
     "error_no_client_id": "Please enter your Google OAuth client ID first",
-    "error_not_signed_in": "Please sign in to Google Tasks first"
+    "error_not_signed_in": "Please sign in to Google Tasks first",
+    "error_not_signed_in_panel": "Sign in to Google Tasks first via the plugin Settings"
   }
 }

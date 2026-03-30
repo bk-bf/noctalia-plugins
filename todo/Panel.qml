@@ -119,6 +119,26 @@ Item {
             }
 
             NButton {
+              icon: mainInstance?.googleSyncStatus === "syncing" ? "arrows-rotate" : "cloud"
+              text: mainInstance?.googleSyncStatus === "syncing"
+                  ? pluginApi?.tr("google_sync.syncing")
+                  : mainInstance?.googleSyncStatus === "authenticating"
+                  ? pluginApi?.tr("google_sync.signing_in")
+                  : pluginApi?.tr("panel.header.sync_button")
+              fontSize: Style.fontSizeS
+              enabled: mainInstance?.googleSyncStatus !== "syncing"
+                    && mainInstance?.googleSyncStatus !== "authenticating"
+              onClicked: {
+                if (!mainInstance) return;
+                if (!mainInstance.googleSignedInEmail) {
+                  ToastService.showNotice(pluginApi.tr("google_sync.error_not_signed_in_panel"));
+                } else {
+                  mainInstance.doGoogleSync();
+                }
+              }
+            }
+
+            NButton {
               enabled: (pluginApi.pluginSettings.completedCount > 0)
               text: pluginApi?.tr("panel.header.clear_completed_button")
               icon: "trash"
